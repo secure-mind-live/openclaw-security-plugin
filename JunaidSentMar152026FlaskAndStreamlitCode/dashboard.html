@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>AI Security SOC</title>
+
+<style>
+
+body{
+background:#0e1117;
+color:white;
+font-family:monospace;
+}
+
+.panel{
+padding:20px;
+border:1px solid #333;
+margin:10px;
+}
+
+.attack{
+color:#ff4d4d;
+}
+
+.safe{
+color:#00ff99;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>AI Agent Security Monitor</h1>
+
+<div class="panel">
+<h2>Live Events</h2>
+<div id="events"></div>
+</div>
+
+<script>
+
+const events = document.getElementById("events")
+
+const source = new EventSource("http://localhost:8000/events")
+
+source.onmessage = function(e){
+
+    const data = JSON.parse(e.data)
+
+    const div = document.createElement("div")
+
+    if(data.attack){
+        div.className="attack"
+        div.innerText="🚨 ATTACK: "+JSON.stringify(data.attack)
+    }else{
+        div.className="safe"
+        div.innerText="EVENT: "+data.type
+    }
+
+    events.prepend(div)
+}
+
+</script>
+
+</body>
+</html>

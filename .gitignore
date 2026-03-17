@@ -1,0 +1,24 @@
+# Ignore everything
+*
+
+# Allow specific top-level files
+!index.ts
+!openclaw.plugin.json
+!package-lock.json
+!package.json
+!tsconfig.json
+!.gitignore
+
+# Allow dist directory
+!dist/
+!dist/**
+
+# Allow node_modules directory
+!node_modules/
+!node_modules/**
+
+# Allow JunaidSentMar152026FlaskAndStreamlitCode directory (only specific files)
+!JunaidSentMar152026FlaskAndStreamlitCode/
+!JunaidSentMar152026FlaskAndStreamlitCode/flask.py
+!JunaidSentMar152026FlaskAndStreamlitCode/dashboard.html
+!JunaidSentMar152026FlaskAndStreamlitCode/dashboard.py

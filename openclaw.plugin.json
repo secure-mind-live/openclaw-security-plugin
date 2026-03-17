@@ -1,0 +1,13 @@
+{
+  "id": "security-plugin",
+  "name": "Security Auditor",
+  "version": "1.0.0",
+  "description": "Checks for sensitive data via FastAPI",
+  "entryPoint": "index.ts",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "endpoint": { "type": "string", "default": "http://127.0.0.1:8000/check" }
+    }
+  }
+}
