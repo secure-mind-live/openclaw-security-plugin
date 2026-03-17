@@ -8,6 +8,7 @@
 !package.json
 !tsconfig.json
 !.gitignore
+!README.md
 
 # Allow dist directory
 !dist/
