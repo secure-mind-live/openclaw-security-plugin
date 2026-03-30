@@ -1,12 +1,21 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import json
 import re
 import asyncio
+import os
 from datetime import datetime, timezone
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 audit_log = []
 event_stream = []
@@ -142,6 +151,14 @@ def root():
         "time": now(),
         "events_logged": len(audit_log),
     }
+
+
+@app.get("/monitor", response_class=HTMLResponse)
+def monitor():
+
+    html_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
+    with open(html_path) as f:
+        return f.read()
 
 
 """
