@@ -3,12 +3,17 @@
   "version": "1.0.0",
   "main": "dist/index.js",
   "openclaw": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "scripts": {
     "build": "tsc"
   },
   "dependencies": {
     "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
   }
 }

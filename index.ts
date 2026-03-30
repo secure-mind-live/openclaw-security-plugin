@@ -4,6 +4,8 @@ const POLICY_API = "http://host.docker.internal:8000/check";
 const RESULT_API = "http://host.docker.internal:8000/result";
 const PROMPT_API = "http://host.docker.internal:8000/prompt";
 const RESPONSE_API = "http://host.docker.internal:8000/response";
+const LLM_INPUT_API = "http://host.docker.internal:8000/llm-input";
+const LLM_OUTPUT_API = "http://host.docker.internal:8000/llm-output";
 
 export default {
   register(api: any) {
@@ -157,6 +159,118 @@ export default {
 
         console.error(
           "[Security Auditor] Failed sending result:",
+          err.message
+        );
+
+      }
+
+    });
+
+    /*
+    ======================================
+    RAW LLM INPUT INTERCEPTION
+    ======================================
+    */
+
+    api.on("llm_input", async (event: any) => {
+
+      const payload = {
+        type: "llm_input",
+        runId: event?.runId || null,
+        sessionId: event?.sessionId || null,
+        provider: event?.provider || "unknown",
+        model: event?.model || "unknown",
+        systemPrompt: event?.systemPrompt || null,
+        prompt: event?.prompt || "",
+        historyMessageCount: event?.historyMessages?.length || 0,
+        imagesCount: event?.imagesCount || 0,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log("\n========== LLM INPUT ==========");
+      console.log("Provider:", payload.provider);
+      console.log("Model:", payload.model);
+      console.log("System Prompt:", event?.systemPrompt?.substring(0, 200));
+      console.log("Prompt:", event?.prompt?.substring(0, 200));
+      console.log("History Messages:", payload.historyMessageCount);
+      console.log("================================\n");
+
+      try {
+
+        const response = await axios.post(
+          LLM_INPUT_API,
+          payload,
+          { timeout: 2000 }
+        );
+
+        if (response.data?.block === true) {
+
+          console.log("🚨 LLM CALL BLOCKED BY POLICY");
+
+          return {
+            block: true,
+            blockReason: response.data.reason || "Blocked by security policy"
+          };
+
+        }
+
+        if (response.data?.prompt) {
+          return { prompt: response.data.prompt };
+        }
+
+      } catch (err: any) {
+
+        console.error(
+          "[Security Auditor] LLM input policy check failed:",
+          err.message
+        );
+
+      }
+
+    });
+
+    /*
+    ======================================
+    RAW LLM OUTPUT INTERCEPTION
+    ======================================
+    */
+
+    api.on("llm_output", async (event: any) => {
+
+      const payload = {
+        type: "llm_output",
+        runId: event?.runId || null,
+        sessionId: event?.sessionId || null,
+        provider: event?.provider || "unknown",
+        model: event?.model || "unknown",
+        assistantTexts: event?.assistantTexts || [],
+        usage: event?.usage || null,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log("\n========== LLM OUTPUT ==========");
+      console.log("Provider:", payload.provider);
+      console.log("Model:", payload.model);
+      console.log("Usage:", JSON.stringify(payload.usage));
+      console.log("Response preview:", event?.assistantTexts?.[0]?.substring(0, 200));
+      console.log("=================================\n");
+
+      try {
+
+        const response = await axios.post(
+          LLM_OUTPUT_API,
+          payload,
+          { timeout: 2000 }
+        );
+
+        if (response.data?.assistantTexts) {
+          return { assistantTexts: response.data.assistantTexts };
+        }
+
+      } catch (err: any) {
+
+        console.error(
+          "[Security Auditor] LLM output policy check failed:",
           err.message
         );
 

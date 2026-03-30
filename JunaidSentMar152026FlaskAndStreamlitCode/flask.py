@@ -281,6 +281,81 @@ async def response(req: Request):
 
 """
 =====================================================
+RAW LLM INPUT (before LLM API call)
+=====================================================
+"""
+
+
+@app.post("/llm-input")
+async def llm_input(req: Request):
+
+    data = await req.json()
+
+    print("\n================ RAW LLM INPUT =================")
+    print(f"Provider: {data.get('provider')}")
+    print(f"Model: {data.get('model')}")
+    print(f"System Prompt: {str(data.get('systemPrompt', ''))[:200]}")
+    print(f"Prompt: {str(data.get('prompt', ''))[:200]}")
+    print(f"History Messages: {data.get('historyMessageCount')}")
+    print("=================================================\n")
+
+    prompt = data.get("prompt", "")
+
+    # Only scan the user prompt, not the system prompt (which contains
+    # internal tool descriptions that trigger false positives).
+    attack = detect_attack(prompt=prompt)
+
+    event = {
+        "type": "llm_input",
+        "time": now(),
+        "data": data,
+        "attack": attack,
+    }
+
+    audit_log.append(event)
+    event_stream.append(event)
+
+    if attack:
+        print("🚨 LLM INPUT ATTACK DETECTED:", attack)
+        return {"block": True, "reason": attack["reason"]}
+
+    return {"block": False}
+
+
+"""
+=====================================================
+RAW LLM OUTPUT (after LLM API response)
+=====================================================
+"""
+
+
+@app.post("/llm-output")
+async def llm_output(req: Request):
+
+    data = await req.json()
+
+    print("\n================ RAW LLM OUTPUT =================")
+    print(f"Provider: {data.get('provider')}")
+    print(f"Model: {data.get('model')}")
+    print(f"Usage: {data.get('usage')}")
+    texts = data.get("assistantTexts", [])
+    print(f"Response preview: {str(texts[0])[:200] if texts else 'N/A'}")
+    print("==================================================\n")
+
+    event = {
+        "type": "llm_output",
+        "time": now(),
+        "data": data,
+    }
+
+    audit_log.append(event)
+    event_stream.append(event)
+
+    return {"ok": True}
+
+
+"""
+=====================================================
 SECURITY DASHBOARD
 =====================================================
 """
