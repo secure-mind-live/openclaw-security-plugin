@@ -391,7 +391,7 @@ def dashboard():
 
     for e in audit_log:
 
-        if e["type"] == "prompt" and e.get("attack"):
+        if e["type"] in ("prompt", "llm_input") and e.get("attack"):
 
             if e["attack"]["category"] == "prompt_injection":
                 stats["prompt_attacks"] += 1
@@ -402,7 +402,7 @@ def dashboard():
             if e["attack"]["category"] == "data_exfiltration":
                 stats["exfiltration"] += 1
 
-        if e["type"] == "tool_request":
+        if e["type"] in ("tool_request", "llm_input", "llm_output"):
             stats["tool_calls"] += 1
 
     return {"stats": stats, "recent_events": audit_log[-25:]}
