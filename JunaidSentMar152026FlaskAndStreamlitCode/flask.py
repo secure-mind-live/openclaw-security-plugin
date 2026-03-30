@@ -147,7 +147,7 @@ PROMPT_RISK_KEYWORDS = {
         {"pattern": r"\b(copy|transfer|move)\s+.{0,30}(to\s+)?.{0,20}(server|remote|external|cloud)\b", "weight": 0.5},
     ],
     "bulk_data_request": [
-        {"pattern": r"\b(all|every|entire|complete|full)\s+(customer|patient|user|employee|client)\s+(data|record|file)s?\b", "weight": 0.6},
+        {"pattern": r"\b(all|every|entire|complete|full)\s+.{0,20}(customer|patient|user|employee|client).{0,20}(data|record|file|ssn|social|info|detail)s?\b", "weight": 0.6},
         {"pattern": r"\b(dump|export|extract)\s+(the\s+)?(database|db|table|collection)\b", "weight": 0.6},
         {"pattern": r"\b(bulk|mass|batch)\s+(download|export|extract|read)\b", "weight": 0.4},
     ],
@@ -159,8 +159,8 @@ PROMPT_RISK_KEYWORDS = {
 COMPOUND_PATTERNS = [
     {"pattern": r"\b(customer|patient|user)\s+(data|record).{0,60}\b(send|upload|curl|email|post)\b", "label": "data_request_plus_exfil", "weight": 0.8},
     {"pattern": r"\b(password|secret|key|credential).{0,60}\b(pipe|redirect|curl|send|post)\b", "label": "credential_plus_exfil", "weight": 0.9},
-    {"pattern": r"\bget\s+me\s+(all|every)\s+.{0,30}(ssn|password|credit\s*card|patient|api\s*key)\b", "label": "get_all_sensitive", "weight": 0.8},
-    {"pattern": r"\b(show|give|list|get|find)\s+.{0,20}\ball\b.{0,20}\b(password|credential|secret|token|key)s?\b", "label": "show_all_credentials", "weight": 0.8},
+    {"pattern": r"\b(get|give|show|list|find|fetch)\s+.{0,10}(all|every)\s+.{0,30}(ssn|password|credit\s*card|patient|api\s*key|social\s*security)\b", "label": "get_all_sensitive", "weight": 0.8},
+    {"pattern": r"\b(show|give|list|get|find)\s+.{0,20}\ball\b.{0,20}\b(password|credential|secret|token|key|ssn)s?\b", "label": "show_all_credentials", "weight": 0.8},
     {"pattern": r"\b(dump|extract)\s+.{0,30}\b(password|credential|secret|token|api.?key|config)s?\b", "label": "dump_credentials", "weight": 0.8},
     {"pattern": r"\b(select|update|delete)\b.{0,60}\b(ssn|social.security|credit.card|password|dob|date.of.birth)\b", "label": "sql_pii_extraction", "weight": 0.8},
     {"pattern": r"\b(find|get|show|list|export)\s+(all|every)?\s*.{0,30}\b(patient|medical|health)\s*(record|data|file|history)s?\b", "label": "hipaa_bulk_access", "weight": 0.8},
