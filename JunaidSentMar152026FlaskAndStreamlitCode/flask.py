@@ -6,7 +6,18 @@ import json
 import re
 import asyncio
 import os
+import logging
 from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Ollama configuration
+# ---------------------------------------------------------------------------
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "5"))
 
 app = FastAPI()
 
@@ -313,6 +324,190 @@ def scan_for_pii(text):
     return findings
 
 
+# ---------------------------------------------------------------------------
+# Layer 3: Ollama LLM Analyzer (semantic analysis for ambiguous cases)
+# ---------------------------------------------------------------------------
+
+_OLLAMA_SYSTEM_PROMPT = """\
+You are a security classifier. Analyze the user prompt and determine if it \
+is attempting to access, extract, or exfiltrate sensitive data (PII, credentials, \
+financial records, medical records).
+
+Respond ONLY with a JSON object — no markdown, no explanation:
+{
+  "risk_score": <float 0.0-1.0>,
+  "risk_level": "<none|low|medium|high>",
+  "intent_categories": ["<category>", ...],
+  "reasoning": "<one sentence>"
+}
+
+Valid categories: pii_request, credential_request, financial_request, \
+medical_request, exfiltration_intent, bulk_data_request, evasion_attempt.
+
+If the prompt is benign, return risk_score 0.0, risk_level "none", empty categories.
+"""
+
+_ollama_available: Optional[bool] = None
+_ollama_client = None
+
+
+def _init_ollama():
+    global _ollama_available, _ollama_client
+    try:
+        import ollama
+        _ollama_client = ollama.Client(host=OLLAMA_BASE_URL)
+        _ollama_client.list()
+        _ollama_available = True
+        print(f"[Ollama] Connected to {OLLAMA_BASE_URL}, model: {OLLAMA_MODEL}")
+    except Exception as e:
+        _ollama_available = False
+        _ollama_client = None
+        print(f"[Ollama] Not available ({e}) — Layer 3 disabled, falling back to regex+rules only")
+
+
+def ollama_analyze(prompt: str) -> Optional[Dict]:
+    """Analyze prompt via local Ollama LLM. Returns None if unavailable."""
+    global _ollama_available, _ollama_client
+
+    if _ollama_available is None:
+        _init_ollama()
+
+    if not _ollama_available:
+        return None
+
+    try:
+        response = _ollama_client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": _OLLAMA_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            options={"num_predict": 256},
+        )
+
+        raw = response["message"]["content"].strip()
+        return _parse_ollama_response(raw)
+
+    except Exception as e:
+        logger.debug("Ollama analysis failed: %s", e)
+        return None
+
+
+def _parse_ollama_response(raw: str) -> Optional[Dict]:
+    """Parse LLM JSON response into standard result dict."""
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines)
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    risk_score = float(data.get("risk_score", 0.0))
+    risk_score = max(0.0, min(1.0, risk_score))
+
+    risk_level = data.get("risk_level", "none")
+    if risk_level not in ("none", "low", "medium", "high"):
+        if risk_score >= 0.7:
+            risk_level = "high"
+        elif risk_score >= 0.4:
+            risk_level = "medium"
+        elif risk_score >= 0.15:
+            risk_level = "low"
+        else:
+            risk_level = "none"
+
+    categories = data.get("intent_categories", [])
+    if not isinstance(categories, list):
+        categories = []
+
+    return {
+        "risk_score": round(risk_score, 3),
+        "risk_level": risk_level,
+        "intent_categories": sorted(categories),
+        "matches": [],
+        "evasion_flags": [],
+        "should_block": risk_level == "high",
+        "reasoning": data.get("reasoning", ""),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 3-Layer Prompt Guard Orchestrator
+# ---------------------------------------------------------------------------
+
+def _is_definitive(result: Dict) -> bool:
+    """A result is definitive if risk is clearly high or clearly none."""
+    level = result.get("risk_level", "none")
+    if level == "high":
+        return True
+    if level == "none" and not result.get("matches"):
+        return True
+    return False
+
+
+def _merge_results(a: Dict, b: Dict) -> Dict:
+    """Merge two analysis results, taking the worse case."""
+    score = max(a.get("risk_score", 0.0), b.get("risk_score", 0.0))
+    score = min(1.0, score)
+
+    cats = sorted(set(a.get("intent_categories", [])) | set(b.get("intent_categories", [])))
+    matches = (a.get("matches", []) + b.get("matches", []))[:10]
+    evasion = sorted(set(a.get("evasion_flags", [])) | set(b.get("evasion_flags", [])))
+
+    if score >= 0.7:
+        level = "high"
+    elif score >= 0.4:
+        level = "medium"
+    elif score >= 0.15:
+        level = "low"
+    else:
+        level = "none"
+
+    return {
+        "risk_score": round(score, 3),
+        "risk_level": level,
+        "intent_categories": cats,
+        "matches": matches,
+        "evasion_flags": evasion,
+        "should_block": level == "high",
+    }
+
+
+def prompt_guard(prompt: str) -> Dict:
+    """3-layer prompt analysis orchestrator.
+
+    Layer 1: analyze_prompt() — regex + weighted keywords (<50ms)
+    Layer 2: analyze_prompt() already includes compound patterns
+    Layer 3: ollama_analyze() — local LLM semantic analysis (only for ambiguous cases)
+
+    Returns the merged result with analysis_layers listing which layers ran.
+    """
+    layers_used: List[str] = []
+
+    # Layer 1+2: Regex + weighted keywords + compound patterns
+    result = analyze_prompt(prompt)
+    layers_used.append("regex+rules")
+
+    if _is_definitive(result):
+        result["analysis_layers"] = layers_used
+        return result
+
+    # Layer 3: Local LLM (only for ambiguous/uncertain cases)
+    llm_result = ollama_analyze(prompt)
+    if llm_result is not None:
+        layers_used.append("ollama")
+        result = _merge_results(result, llm_result)
+        if llm_result.get("reasoning"):
+            result["llm_reasoning"] = llm_result["reasoning"]
+
+    result["analysis_layers"] = layers_used
+    return result
+
+
 """
 =====================================================
 EVENT STREAM (REAL-TIME DASHBOARD)
@@ -527,8 +722,8 @@ async def llm_input(req: Request):
     # Layer 1: Simple pattern detection (prompt injection, sensitive files)
     attack = detect_attack(prompt=prompt)
 
-    # Layer 2: Deep prompt analysis with weighted risk scoring
-    analysis = analyze_prompt(prompt)
+    # Layers 2+3: Deep prompt analysis + Ollama LLM (if ambiguous)
+    analysis = prompt_guard(prompt)
 
     event = {
         "type": "llm_input",
@@ -546,15 +741,21 @@ async def llm_input(req: Request):
         print("🚨 LLM INPUT ATTACK DETECTED:", attack)
         return {"block": True, "reason": attack["reason"]}
 
+    # Log which analysis layers ran
+    layers = analysis.get("analysis_layers", [])
+    print(f"   Analysis layers: {layers}")
+    if analysis.get("llm_reasoning"):
+        print(f"   Ollama reasoning: {analysis['llm_reasoning']}")
+
     # Block on high risk score from deep analysis
     if analysis["should_block"]:
-        reason = f"High risk prompt (score={analysis['risk_score']}, categories={analysis['intent_categories']})"
+        reason = f"High risk prompt (score={analysis['risk_score']}, categories={analysis['intent_categories']}, layers={layers})"
         print(f"🚨 LLM INPUT BLOCKED BY RISK ANALYSIS: {reason}")
         return {"block": True, "reason": reason}
 
     # Warn on medium risk (log but don't block)
     if analysis["risk_level"] == "medium":
-        print(f"⚠️ MEDIUM RISK PROMPT: score={analysis['risk_score']}, categories={analysis['intent_categories']}")
+        print(f"⚠️ MEDIUM RISK PROMPT: score={analysis['risk_score']}, categories={analysis['intent_categories']}, layers={layers}")
 
     return {"block": False, "analysis": analysis}
 
