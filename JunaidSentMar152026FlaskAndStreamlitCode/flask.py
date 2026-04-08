@@ -70,11 +70,19 @@ EXFIL_COMMANDS = [
 # ---------------------------------------------------------------------------
 PROMPT_INJECTION_PATTERNS = [
     "ignore previous instructions",
+    "ignore all previous instructions",
     "ignore all prior instructions",
     "reveal system prompt",
+    "reveal your system prompt",
+    "show system prompt",
+    "show your system prompt",
     "show hidden prompt",
     "developer instructions",
     "bypass safety",
+    "disregard previous instructions",
+    "disregard all previous instructions",
+    "forget your instructions",
+    "forget previous instructions",
 ]
 
 EVASION_PATTERNS = [
